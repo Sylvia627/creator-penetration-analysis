@@ -5,12 +5,21 @@ Supports 5-file upload: 3 tier lists + 2 activity files (sampled/posted)
 
 import os
 import uuid
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+os.environ['MPLBACKEND'] = 'Agg'
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -18,32 +27,34 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from datetime import datetime
 from typing import Optional
 
-app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(__name__,
+            static_folder=os.path.join(BASE_DIR, 'static'),
+            template_folder=os.path.join(BASE_DIR, 'templates'))
+
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['OUTPUT_FOLDER'] = 'output'
+app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
+app.config['OUTPUT_FOLDER'] = os.path.join(BASE_DIR, 'output')
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 
+logger.info(f"App initialized. UPLOAD_FOLDER: {app.config['UPLOAD_FOLDER']}")
+logger.info(f"OUTPUT_FOLDER: {app.config['OUTPUT_FOLDER']}")
+
 try:
     from google import genai
     GEMINI_AVAILABLE = True
+    logger.info("Gemini API library loaded")
 except ImportError:
     GEMINI_AVAILABLE = False
+    logger.warning("Gemini API library not available")
 
 
 def analyze_tier_with_matching(tier_df, sampled_ids, posted_ids, tier_name):
-    """
-    Analyze a specific tier by matching against sampled/posted creator_ids
-    
-    Args:
-        tier_df: DataFrame with creator_id column (tier list)
-        sampled_ids: Set of creator_ids who were sampled
-        posted_ids: Set of creator_ids who posted
-        tier_name: Name of the tier
-    """
+    """Analyze a specific tier by matching against sampled/posted creator_ids"""
     total = len(tier_df)
     
     sampled = tier_df['creator_id'].isin(sampled_ids).sum()
@@ -93,7 +104,7 @@ def create_funnel_chart(stats, output_path):
             (left - 0.05 * (1 - i * 0.1), y_bottom)
         ]
         
-        trapezoid = plt.Polygon(vertices, facecolor=color, edgecolor='white', linewidth=2, alpha=0.9)
+        trapezoid = mpatches.Polygon(vertices, closed=True, facecolor=color, edgecolor='white', linewidth=2, alpha=0.9)
         ax.add_patch(trapezoid)
         ax.text(0.5, y_top - 0.35, f'{stage}', ha='center', va='center', fontsize=11, fontweight='bold', color='white')
         ax.text(0.5, y_top - 0.55, f'{value:,} ({pct:.1f}%)', ha='center', va='center', fontsize=10, color='white')
@@ -116,6 +127,7 @@ def create_funnel_chart(stats, output_path):
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
+    logger.info(f"Chart saved: {output_path}")
 
 
 def generate_insights(stats: dict, tier_name: str, api_key: str) -> Optional[str]:
@@ -125,7 +137,8 @@ def generate_insights(stats: dict, tier_name: str, api_key: str) -> Optional[str
     
     try:
         client = genai.Client(api_key=api_key)
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to initialize Gemini client: {e}")
         return None
     
     prompt = f"""You are a data analyst writing insights for a Creator Penetration Analysis Report.
@@ -146,7 +159,8 @@ Only output the insights text, no headers or formatting markers."""
     try:
         response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
         return response.text.strip()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Gemini API call failed: {e}")
         return None
 
 
@@ -270,7 +284,7 @@ def create_word_report(all_stats, chart_paths, all_insights, output_path):
     
     total_untapped = sum(s['untapped'] for s in all_stats)
     total_creators = sum(s['total'] for s in all_stats)
-    overall_penetration = round((1 - total_untapped / total_creators) * 100, 1)
+    overall_penetration = round((1 - total_untapped / total_creators) * 100, 1) if total_creators > 0 else 0
     
     takeaway_text = f"""
 Based on comprehensive analysis across all creator tiers, several key insights emerge:
@@ -292,6 +306,7 @@ Based on comprehensive analysis across all creator tiers, several key insights e
 """
     doc.add_paragraph(takeaway_text)
     doc.save(output_path)
+    logger.info(f"Report saved: {output_path}")
 
 
 @app.route('/')
@@ -306,6 +321,8 @@ def analyze():
     session_output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
     os.makedirs(session_upload_dir, exist_ok=True)
     os.makedirs(session_output_dir, exist_ok=True)
+    
+    logger.info(f"Starting analysis for session: {session_id}")
     
     try:
         api_key = request.form.get('gemini_api_key', '').strip()
@@ -322,10 +339,16 @@ def analyze():
         if not sampled_file or not posted_file:
             return jsonify({'success': False, 'error': 'Please upload both Sampled and Posted CSV files'})
         
-        sampled_filepath = os.path.join(session_upload_dir, secure_filename(sampled_file.filename))
-        posted_filepath = os.path.join(session_upload_dir, secure_filename(posted_file.filename))
+        sampled_filename = secure_filename(sampled_file.filename) if sampled_file.filename else 'sampled.csv'
+        posted_filename = secure_filename(posted_file.filename) if posted_file.filename else 'posted.csv'
+        
+        sampled_filepath = os.path.join(session_upload_dir, sampled_filename)
+        posted_filepath = os.path.join(session_upload_dir, posted_filename)
+        
         sampled_file.save(sampled_filepath)
         posted_file.save(posted_filepath)
+        
+        logger.info(f"Saved files: {sampled_filename}, {posted_filename}")
         
         sampled_df = pd.read_csv(sampled_filepath)
         posted_df = pd.read_csv(posted_filepath)
@@ -333,13 +356,19 @@ def analyze():
         sampled_ids = set(sampled_df['creator_id'].dropna().astype(str))
         posted_ids = set(posted_df['creator_id'].dropna().astype(str))
         
+        logger.info(f"Loaded {len(sampled_ids)} sampled, {len(posted_ids)} posted creator IDs")
+        
         tier_data = {}
         for tier_name, file in tier_files.items():
             if file and file.filename:
-                filepath = os.path.join(session_upload_dir, secure_filename(file.filename))
+                filename = secure_filename(file.filename)
+                if not filename:
+                    filename = f"{tier_name.replace(' ', '_')}.csv"
+                filepath = os.path.join(session_upload_dir, filename)
                 file.save(filepath)
                 df = pd.read_csv(filepath)
                 tier_data[tier_name] = df
+                logger.info(f"Loaded tier {tier_name}: {len(df)} creators")
         
         if not tier_data:
             return jsonify({'success': False, 'error': 'Please upload at least one tier list (L3+, L4+, or Izzy Recco)'})
@@ -354,7 +383,7 @@ def analyze():
             safe_name = tier_name.replace(' ', '_').replace('+', 'plus')
             chart_path = os.path.join(session_output_dir, f'funnel_{safe_name}.png')
             create_funnel_chart(stats, chart_path)
-            chart_paths[tier_name] = f'/get-chart/{session_id}/{safe_name}'
+            chart_paths[tier_name] = chart_path
         
         all_insights = {}
         for stats in all_stats:
@@ -368,6 +397,8 @@ def analyze():
         report_path = os.path.join(session_output_dir, 'Creator_Penetration_Analysis_Q1_2026.docx')
         create_word_report(all_stats, chart_paths, all_insights, report_path)
         
+        logger.info(f"Analysis complete for session: {session_id}")
+        
         return jsonify({
             'success': True,
             'session_id': session_id,
@@ -375,13 +406,18 @@ def analyze():
             'report_path': f'/download-report/{session_id}'
         })
     
+    except KeyError as e:
+        logger.error(f"Missing column in CSV: {e}")
+        return jsonify({'success': False, 'error': f'Missing required column: {e}'})
     except Exception as e:
+        logger.error(f"Analysis error: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/get-chart/<session_id>/<tier_name>')
 def get_chart(session_id, tier_name):
     chart_path = os.path.join(app.config['OUTPUT_FOLDER'], session_id, f'funnel_{tier_name}.png')
+    logger.info(f"Serving chart: {chart_path}")
     if os.path.exists(chart_path):
         return send_file(chart_path, mimetype='image/png')
     return 'Chart not found', 404
@@ -390,10 +426,23 @@ def get_chart(session_id, tier_name):
 @app.route('/download-report/<session_id>')
 def download_report(session_id):
     report_path = os.path.join(app.config['OUTPUT_FOLDER'], session_id, 'Creator_Penetration_Analysis_Q1_2026.docx')
+    logger.info(f"Serving report: {report_path}")
     if os.path.exists(report_path):
         return send_file(report_path, as_attachment=True, download_name='Creator_Penetration_Analysis_Q1_2026.docx')
     return 'Report not found', 404
 
 
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error(f"Internal server error: {e}", exc_info=True)
+    return jsonify({'error': 'Internal server error'}), 500
+
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
