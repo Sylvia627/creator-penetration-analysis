@@ -4,3 +4,4 @@ numpy>=1.23.0
 matplotlib>=3.6.0
 python-docx>=0.8.11
 google-genai>=0.3.0
+gunicorn
