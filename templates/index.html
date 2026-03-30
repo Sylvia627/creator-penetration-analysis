@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator Penetration Analysis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Creator Penetration Analysis</h1>
+            <p class="subtitle">Upload creator tier lists and activity data to generate comprehensive reports</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <h2>Upload Data Files</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="gemini_api_key">Gemini API Key (Optional)</label>
+                        <input type="password" id="gemini_api_key" name="gemini_api_key" 
+                               placeholder="Enter your GEMINI_API_KEY for AI-generated insights">
+                        <small>Get your API key from <a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a></small>
+                    </div>
+
+                    <div class="section-divider">
+                        <h3>Activity Data (Required)</h3>
+                        <p class="section-hint">Brand's full sampled/posted data covering all creator tiers</p>
+                    </div>
+
+                    <div class="file-upload-grid file-upload-2col">
+                        <div class="file-upload-card required">
+                            <h3>Sampled Data</h3>
+                            <div class="file-upload-area">
+                                <input type="file" id="sampled_file" name="sampled_file" accept=".csv" class="file-input" required>
+                                <label for="sampled_file" class="file-label">
+                                    <span class="upload-icon">📦</span>
+                                    <span class="upload-text">Choose CSV file</span>
+                                </label>
+                                <div id="sampled_filename" class="filename"></div>
+                            </div>
+                            <small class="file-hint">Columns: creator_id, handle (or other fields)</small>
+                        </div>
+
+                        <div class="file-upload-card required">
+                            <h3>Posted Data</h3>
+                            <div class="file-upload-area">
+                                <input type="file" id="posted_file" name="posted_file" accept=".csv" class="file-input" required>
+                                <label for="posted_file" class="file-label">
+                                    <span class="upload-icon">📝</span>
+                                    <span class="upload-text">Choose CSV file</span>
+                                </label>
+                                <div id="posted_filename" class="filename"></div>
+                            </div>
+                            <small class="file-hint">Columns: creator_id, handle (or other fields)</small>
+                        </div>
+                    </div>
+
+                    <div class="section-divider">
+                        <h3>Creator Tier Lists (Optional)</h3>
+                        <p class="section-hint">Upload the tier lists you want to analyze against sampled/posted data</p>
+                    </div>
+
+                    <div class="file-upload-grid">
+                        <div class="file-upload-card">
+                            <h3>L3+ Tier List</h3>
+                            <div class="file-upload-area">
+                                <input type="file" id="l3_file" name="l3_file" accept=".csv" class="file-input">
+                                <label for="l3_file" class="file-label">
+                                    <span class="upload-icon">👑</span>
+                                    <span class="upload-text">Choose CSV file</span>
+                                </label>
+                                <div id="l3_filename" class="filename"></div>
+                            </div>
+                            <small class="file-hint">Columns: creator_id, handle</small>
+                        </div>
+
+                        <div class="file-upload-card">
+                            <h3>L4+ Tier List</h3>
+                            <div class="file-upload-area">
+                                <input type="file" id="l4_file" name="l4_file" accept=".csv" class="file-input">
+                                <label for="l4_file" class="file-label">
+                                    <span class="upload-icon">💎</span>
+                                    <span class="upload-text">Choose CSV file</span>
+                                </label>
+                                <div id="l4_filename" class="filename"></div>
+                            </div>
+                            <small class="file-hint">Columns: creator_id, handle</small>
+                        </div>
+
+                        <div class="file-upload-card">
+                            <h3>Izzy Recco List</h3>
+                            <div class="file-upload-area">
+                                <input type="file" id="izzy_file" name="izzy_file" accept=".csv" class="file-input">
+                                <label for="izzy_file" class="file-label">
+                                    <span class="upload-icon">⭐</span>
+                                    <span class="upload-text">Choose CSV file</span>
+                                </label>
+                                <div id="izzy_filename" class="filename"></div>
+                            </div>
+                            <small class="file-hint">Columns: creator_id, handle</small>
+                        </div>
+                    </div>
+
+                    <div class="csv-format-info">
+                        <h4>Expected CSV Formats</h4>
+                        
+                        <div class="format-example">
+                            <strong>Activity Data (Sampled/Posted):</strong>
+                            <code>creator_id,handle,other_fields...</code>
+                            <p>The tool will extract creator_id column to match against tier lists</p>
+                        </div>
+                        
+                        <div class="format-example">
+                            <strong>Tier Lists (L3+/L4+/Izzy):</strong>
+                            <code>creator_id,handle,other_fields...</code>
+                            <p>The tool will check which creators in this list appear in sampled/posted data</p>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="analyzeBtn" class="btn-primary">
+                        <span class="btn-text">Analyze Data</span>
+                        <span class="btn-loading" style="display: none;">
+                            <span class="spinner"></span> Processing...
+                        </span>
+                    </button>
+                </form>
+            </section>
+
+            <section id="resultsSection" class="results-section" style="display: none;">
+                <h2>Analysis Results</h2>
+                
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+                
+                <div id="resultsContent" class="results-content">
+                    <div id="tierResults"></div>
+                    
+                    <div class="actions">
+                        <a id="downloadReport" class="btn-download" href="#" download>
+                            📄 Download Word Report
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Creator Penetration Analysis Tool • Powered by Flask & Gemini AI</p>
+        </footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('uploadForm');
+            const resultsSection = document.getElementById('resultsSection');
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const tierResults = document.getElementById('tierResults');
+            const errorMessage = document.getElementById('errorMessage');
+            const downloadReport = document.getElementById('downloadReport');
+
+            document.querySelectorAll('.file-input').forEach(input => {
+                input.addEventListener('change', function() {
+                    const filenameDisplay = document.getElementById(this.id.replace('_file', '_filename'));
+                    if (this.files.length > 0) {
+                        filenameDisplay.textContent = '✓ ' + this.files[0].name;
+                    } else {
+                        filenameDisplay.textContent = '';
+                    }
+                });
+            });
+
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const sampledFile = document.getElementById('sampled_file').files.length > 0;
+                const postedFile = document.getElementById('posted_file').files.length > 0;
+                
+                if (!sampledFile || !postedFile) {
+                    showError('Please upload both Sampled and Posted CSV files');
+                    return;
+                }
+
+                analyzeBtn.disabled = true;
+                analyzeBtn.querySelector('.btn-text').style.display = 'none';
+                analyzeBtn.querySelector('.btn-loading').style.display = 'inline-flex';
+                resultsSection.style.display = 'none';
+                errorMessage.style.display = 'none';
+
+                const formData = new FormData(form);
+                
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        displayResults(result);
+                    } else {
+                        showError(result.error || 'An error occurred during analysis');
+                    }
+                } catch (error) {
+                    showError('Network error: ' + error.message);
+                } finally {
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.querySelector('.btn-text').style.display = 'inline';
+                    analyzeBtn.querySelector('.btn-loading').style.display = 'none';
+                }
+            });
+
+            function displayResults(result) {
+                tierResults.innerHTML = '';
+                
+                if (result.stats.length === 0) {
+                    tierResults.innerHTML = '<p class="no-data">No tier lists were uploaded. Please upload at least one tier list (L3+, L4+, or Izzy Recco).</p>';
+                }
+                
+                result.stats.forEach(stats => {
+                    const tierCard = document.createElement('div');
+                    tierCard.className = 'tier-result-card';
+                    
+                    tierCard.innerHTML = `
+                        <h3>${stats.tier} Analysis</h3>
+                        <div class="chart-container">
+                            <img src="/get-chart/${result.session_id}/${stats.tier.replace(' ', '_').replace('+', 'plus')}" alt="Funnel Chart" onerror="this.style.display='none'">
+                        </div>
+                        <table class="stats-table">
+                            <tr><td>Total Creators</td><td>${stats.total.toLocaleString()}</td></tr>
+                            <tr><td>Sampled</td><td>${stats.sampled.toLocaleString()} (${stats.sampled_pct}%)</td></tr>
+                            <tr><td>Posted</td><td>${stats.posted.toLocaleString()} (${stats.posted_pct}%)</td></tr>
+                            <tr><td>Touched</td><td>${stats.touched.toLocaleString()} (${stats.touched_pct}%)</td></tr>
+                            <tr><td>Untapped</td><td>${stats.untapped.toLocaleString()} (${stats.untapped_pct}%)</td></tr>
+                        </table>
+                    `;
+                    
+                    tierResults.appendChild(tierCard);
+                });
+                
+                downloadReport.href = result.report_path;
+                resultsSection.style.display = 'block';
+                resultsSection.scrollIntoView({ behavior: 'smooth' });
+            }
+
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
